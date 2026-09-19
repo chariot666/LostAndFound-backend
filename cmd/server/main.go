@@ -1,13 +1,21 @@
 package main
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"lost-found-server/internal/config"
+	"lost-found-server/internal/database"
 	"lost-found-server/internal/response"
 )
 
 func main() {
+	cfg := config.Load()
+	if _, err := database.Open(cfg); err != nil {
+		log.Fatal(err)
+	}
+
 	router := gin.Default()
 
 	router.GET("/health", func(c *gin.Context) {
@@ -17,7 +25,7 @@ func main() {
 	})
 
 	server := &http.Server{
-		Addr:    ":8080",
+		Addr:    ":" + cfg.AppPort,
 		Handler: router,
 	}
 
