@@ -7,12 +7,14 @@ import (
 	"github.com/gin-gonic/gin"
 	"lost-found-server/internal/config"
 	"lost-found-server/internal/database"
+	"lost-found-server/internal/handler"
 	"lost-found-server/internal/response"
 )
 
 func main() {
 	cfg := config.Load()
-	if _, err := database.Open(cfg); err != nil {
+	db, err := database.Open(cfg)
+	if err != nil {
 		log.Fatal(err)
 	}
 
@@ -23,6 +25,11 @@ func main() {
 			"status": "ok",
 		})
 	})
+
+	authHandler := handler.NewAuthHandler(db)
+	api := router.Group("/api/v1")
+	auth := api.Group("/auth")
+	auth.POST("/register", authHandler.Register)
 
 	server := &http.Server{
 		Addr:    ":" + cfg.AppPort,
