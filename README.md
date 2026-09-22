@@ -43,6 +43,7 @@
 | `DB_USER` | `app` | MySQL 用户名 |
 | `DB_PASSWORD` | `app_password` | MySQL 密码 |
 | `DB_NAME` | `lost_found` | 数据库名称 |
+| `JWT_SECRET` | `local-development-secret` | JWT 签名密钥，生产环境必须修改 |
 
 配置示例见 `.env.example`。
 
