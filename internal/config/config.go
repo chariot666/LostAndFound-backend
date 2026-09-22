@@ -9,6 +9,7 @@ type Config struct {
 	DBUser     string
 	DBPassword string
 	DBName     string
+	JWTSecret  string
 }
 
 func Load() Config {
@@ -19,6 +20,7 @@ func Load() Config {
 		DBUser:     getEnv("DB_USER", "app"),
 		DBPassword: getEnv("DB_PASSWORD", "app_password"),
 		DBName:     getEnv("DB_NAME", "lost_found"),
+		JWTSecret:  getEnv("JWT_SECRET", "local-development-secret"),
 	}
 }
 
