@@ -26,10 +26,11 @@ func main() {
 		})
 	})
 
-	authHandler := handler.NewAuthHandler(db)
+	authHandler := handler.NewAuthHandler(db, cfg.JWTSecret)
 	api := router.Group("/api/v1")
 	auth := api.Group("/auth")
 	auth.POST("/register", authHandler.Register)
+	auth.POST("/login", authHandler.Login)
 
 	server := &http.Server{
 		Addr:    ":" + cfg.AppPort,
