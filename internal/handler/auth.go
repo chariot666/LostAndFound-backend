@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	"lost-found-server/internal/auth"
+	"lost-found-server/internal/middleware"
 	"lost-found-server/internal/model"
 	"lost-found-server/internal/response"
 )
@@ -111,6 +112,22 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		"uid":      user.UID,
 		"username": user.Username,
 		"role":     user.Role,
+	})
+}
+
+func (h *AuthHandler) Me(c *gin.Context) {
+	user, ok := middleware.CurrentUser(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "未登录或令牌无效")
+		return
+	}
+
+	response.Success(c, gin.H{
+		"uid":        user.UID,
+		"username":   user.Username,
+		"role":       user.Role,
+		"status":     user.Status,
+		"created_at": user.CreatedAt,
 	})
 }
 

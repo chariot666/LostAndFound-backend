@@ -10,6 +10,7 @@ type Config struct {
 	DBPassword string
 	DBName     string
 	JWTSecret  string
+	UploadDir  string
 }
 
 func Load() Config {
@@ -21,6 +22,7 @@ func Load() Config {
 		DBPassword: getEnv("DB_PASSWORD", "app_password"),
 		DBName:     getEnv("DB_NAME", "lost_found"),
 		JWTSecret:  getEnv("JWT_SECRET", "local-development-secret"),
+		UploadDir:  getEnv("UPLOAD_DIR", "uploads"),
 	}
 }
 

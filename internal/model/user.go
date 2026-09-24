@@ -3,7 +3,9 @@ package model
 import "time"
 
 const (
-	RoleUser = "user"
+	RoleUser        = "user"
+	RoleItemAdmin   = "item_admin"
+	RoleSystemAdmin = "system_admin"
 
 	StatusActive   = "active"
 	StatusDisabled = "disabled"

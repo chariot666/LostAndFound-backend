@@ -152,7 +152,7 @@ GET /api/v1/items?page=1&page_size=10&type=lost&keyword=钱包&location=图书�
         "lost_at": "2026-09-10T14:30:00+08:00",
         "contact": "13800000000",
         "images": [
-          "http://localhost:8080/uploads/wallet.jpg"
+          "/uploads/wallet.jpg"
         ],
         "status": "approved",
         "user": {
@@ -191,7 +191,7 @@ POST /api/v1/items
   "lost_at": "2026-09-10T14:30:00+08:00",
   "contact": "13800000000",
   "images": [
-    "http://localhost:8080/uploads/wallet.jpg"
+    "/uploads/wallet.jpg"
   ]
 }
 ```
@@ -225,13 +225,15 @@ file: 图片文件
 成功响应：
 ```json
 {
-  "code": 0,
-  "msg": "success",
-  "data": {
-    "url": "http://localhost:8080/uploads/20260910-wallet.jpg"
+    "code": 0,
+    "msg": "success",
+    "data": {
+    "url": "/uploads/20260910-wallet.jpg"
   }
 }
 ```
+图片地址统一返回相对路径，例如 `/uploads/20260910-wallet.jpg`。
+前端应将该路径拼接到当前 API 服务地址，开发环境通过 Vite 代理访问，生产环境使用部署后的 API 域名。
 建议限制：
 - 只允许 `jpg`、`jpeg`、`png`、`webp`。
 - 单张图片最大 `5 MB`。
@@ -313,6 +315,7 @@ GET /api/v1/announcements?page=1&page_size=10
 ```
 ### 7.2 管理公告
 ```text
+GET /api/v1/admin/announcements?page=1&page_size=10
 POST /api/v1/admin/announcements
 PUT /api/v1/admin/announcements/:id
 DELETE /api/v1/admin/announcements/:id

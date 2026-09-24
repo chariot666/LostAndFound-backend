@@ -20,12 +20,19 @@ func Open(cfg config.Config) (*gorm.DB, error) {
 		cfg.DBName,
 	)
 
-	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{
+		DisableForeignKeyConstraintWhenMigrating: true,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("connect database: %w", err)
 	}
 
-	if err := db.AutoMigrate(&model.User{}); err != nil {
+	if err := db.AutoMigrate(
+		&model.User{},
+		&model.Item{},
+		&model.Claim{},
+		&model.Announcement{},
+	); err != nil {
 		return nil, fmt.Errorf("migrate database: %w", err)
 	}
 	if err := db.Exec("ALTER TABLE users AUTO_INCREMENT = 10001").Error; err != nil {
