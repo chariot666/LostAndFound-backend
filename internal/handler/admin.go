@@ -142,7 +142,7 @@ func (h *AdminHandler) ReviewClaim(c *gin.Context) {
 		respondDBError(c, err)
 		return
 	}
-	if claim.Status != model.ClaimStatusPending || claim.Item == nil {
+	if claim.Status != model.ClaimStatusPending || claim.Item == nil || !canClaimItem(claim.Item.Type) {
 		response.Error(c, http.StatusConflict, response.CodeInvalidState, "资源状态不允许当前操作")
 		return
 	}

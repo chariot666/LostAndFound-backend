@@ -37,6 +37,10 @@ func (h *ClaimHandler) Create(c *gin.Context) {
 		respondDBError(c, err)
 		return
 	}
+	if !canClaimItem(item.Type) {
+		response.Error(c, http.StatusConflict, response.CodeInvalidState, "失物信息不能提交认领申请，请联系发布者")
+		return
+	}
 	if item.Status != model.ItemStatusApproved {
 		response.Error(c, http.StatusConflict, response.CodeInvalidState, "资源状态不允许当前操作")
 		return
@@ -76,6 +80,10 @@ func (h *ClaimHandler) Create(c *gin.Context) {
 		return
 	}
 	response.Success(c, gin.H{"id": claim.ID})
+}
+
+func canClaimItem(itemType string) bool {
+	return itemType == model.ItemTypeFound
 }
 
 func (h *ClaimHandler) Mine(c *gin.Context) {

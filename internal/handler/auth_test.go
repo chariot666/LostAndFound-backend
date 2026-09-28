@@ -43,3 +43,26 @@ func TestValidPassword(t *testing.T) {
 		}
 	}
 }
+
+func TestValidContact(t *testing.T) {
+	tests := []struct {
+		name    string
+		contact string
+		want    bool
+	}{
+		{name: "phone", contact: "13800000000", want: true},
+		{name: "wechat", contact: "wechat_user", want: true},
+		{name: "trimmed", contact: " 13800000000 ", want: true},
+		{name: "empty", contact: "", want: false},
+		{name: "whitespace", contact: "   ", want: false},
+		{name: "too long", contact: "12345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := validContact(tt.contact); got != tt.want {
+				t.Fatalf("validContact(%q) = %v, want %v", tt.contact, got, tt.want)
+			}
+		})
+	}
+}

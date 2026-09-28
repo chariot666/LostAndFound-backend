@@ -42,11 +42,13 @@ POST /api/v1/auth/register
 ```json
 {
   "username": "zhangsan",
-  "password": "123456"
+  "password": "123456",
+  "contact": "13800000000"
 }
 ```
 username要求在3到10个字符，允许中文、数字、字母，允许重名
 password要求6到20个字符
+contact为必填联系方式，最长100个字符，支持手机号、微信号或QQ号等
 成功响应：
 ```json
 {
@@ -55,6 +57,7 @@ password要求6到20个字符
   "data": {
     "username": "zhangsan",
     "uid": 10001,
+    "contact": "13800000000",
     "role": "user"
   }
 }
@@ -82,6 +85,7 @@ POST /api/v1/auth/login
     "user": {
       "username": "zhangsan",
       "uid": 10001,
+      "contact": "13800000000",
       "role": "user"
     }
   }
@@ -103,6 +107,7 @@ Authorization: Bearer <token>
   "data": {
     "uid": 10001,
     "username": "zhangsan",
+    "contact": "13800000000",
     "role": "user",
     "status": "active",
     "created_at": "2026-09-17T10:00:00+08:00"
@@ -244,6 +249,7 @@ file: 图片文件
 POST /api/v1/items/:id/claims
 ```
 需要登录。
+只有 `type=found` 的拾物信息可以提交认领申请；`type=lost` 的失物信息应由拾到者直接联系发布者，提交认领申请会返回资源状态错误。
 请求体：
 ```json
 {

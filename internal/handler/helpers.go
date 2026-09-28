@@ -179,6 +179,7 @@ func userToView(user model.User) gin.H {
 	return gin.H{
 		"uid":        user.UID,
 		"username":   user.Username,
+		"contact":    user.Contact,
 		"role":       user.Role,
 		"status":     user.Status,
 		"created_at": user.CreatedAt,

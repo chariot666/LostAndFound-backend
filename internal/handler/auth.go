@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"regexp"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
@@ -25,6 +26,7 @@ type AuthHandler struct {
 type registerRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
+	Contact  string `json:"contact"`
 }
 
 type loginRequest struct {
@@ -74,6 +76,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		"user": gin.H{
 			"uid":      user.UID,
 			"username": user.Username,
+			"contact":  user.Contact,
 			"role":     user.Role,
 		},
 	})
@@ -86,7 +89,8 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	if !validUsername(req.Username) || !validPassword(req.Password) {
+	req.Contact = strings.TrimSpace(req.Contact)
+	if !validUsername(req.Username) || !validPassword(req.Password) || !validContact(req.Contact) {
 		response.Error(c, http.StatusBadRequest, response.CodeInvalidRegistration, "注册信息不符合规范")
 		return
 	}
@@ -99,6 +103,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 	user := model.User{
 		Username:     req.Username,
+		Contact:      req.Contact,
 		PasswordHash: string(passwordHash),
 		Role:         model.RoleUser,
 		Status:       model.StatusActive,
@@ -111,6 +116,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 	response.Success(c, gin.H{
 		"uid":      user.UID,
 		"username": user.Username,
+		"contact":  user.Contact,
 		"role":     user.Role,
 	})
 }
@@ -125,6 +131,7 @@ func (h *AuthHandler) Me(c *gin.Context) {
 	response.Success(c, gin.H{
 		"uid":        user.UID,
 		"username":   user.Username,
+		"contact":    user.Contact,
 		"role":       user.Role,
 		"status":     user.Status,
 		"created_at": user.CreatedAt,
@@ -139,4 +146,9 @@ func validUsername(username string) bool {
 func validPassword(password string) bool {
 	length := utf8.RuneCountInString(password)
 	return length >= 6 && length <= 20
+}
+
+func validContact(contact string) bool {
+	length := utf8.RuneCountInString(strings.TrimSpace(contact))
+	return length >= 1 && length <= 100
 }
