@@ -19,7 +19,6 @@ func NewFavoriteHandler(db *gorm.DB) *FavoriteHandler {
 	return &FavoriteHandler{db: db}
 }
 
-// Add 收藏物品: POST /api/v1/items/:id/favorite
 func (h *FavoriteHandler) Add(c *gin.Context) {
 	uid, ok := middleware.CurrentUID(c)
 	if !ok {
@@ -33,19 +32,19 @@ func (h *FavoriteHandler) Add(c *gin.Context) {
 		return
 	}
 
-	// 确认物品存在
 	var item model.Item
 	if err := h.db.First(&item, itemID).Error; err != nil {
 		respondDBError(c, err)
 		return
 	}
 
-	// 已收藏就直接返回（幂等：重复点不报错）
 	var existing model.Favorite
-	if err := h.db.Where("uid = ? AND item_id = ?", uid, itemID).First(&existing).Error; err == nil {
-		response.Success(c, gin.H{"favorited": true})
+	switch err := h.db.Where("uid = ? AND item_id = ?", uid, itemID).First(&existing).Error; err {
+	case nil:
+		response.Success(c, gin.H{"favorited": true, "id": existing.ID})
 		return
-	} else if err != gorm.ErrRecordNotFound {
+	case gorm.ErrRecordNotFound:
+	default:
 		respondDBError(c, err)
 		return
 	}
@@ -58,7 +57,6 @@ func (h *FavoriteHandler) Add(c *gin.Context) {
 	response.Success(c, gin.H{"favorited": true, "id": favorite.ID})
 }
 
-// Remove 取消收藏: DELETE /api/v1/items/:id/favorite
 func (h *FavoriteHandler) Remove(c *gin.Context) {
 	uid, ok := middleware.CurrentUID(c)
 	if !ok {
@@ -72,11 +70,46 @@ func (h *FavoriteHandler) Remove(c *gin.Context) {
 		return
 	}
 
-	h.db.Where("uid = ? AND item_id = ?", uid, itemID).Delete(&model.Favorite{})
+	var item model.Item
+	if err := h.db.First(&item, itemID).Error; err != nil {
+		respondDBError(c, err)
+		return
+	}
+	if err := h.db.Where("uid = ? AND item_id = ?", uid, itemID).Delete(&model.Favorite{}).Error; err != nil {
+		respondDBError(c, err)
+		return
+	}
 	response.Success(c, gin.H{"favorited": false})
 }
 
-// Mine 我的收藏列表: GET /api/v1/me/favorites
+func (h *FavoriteHandler) Status(c *gin.Context) {
+	uid, ok := middleware.CurrentUID(c)
+	if !ok {
+		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "未登录或令牌无效")
+		return
+	}
+
+	itemID, err := parseUint(c.Param("id"))
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeParamError, "参数错误")
+		return
+	}
+
+	var item model.Item
+	if err := h.db.First(&item, itemID).Error; err != nil {
+		respondDBError(c, err)
+		return
+	}
+
+	var favorite model.Favorite
+	err = h.db.Where("uid = ? AND item_id = ?", uid, itemID).First(&favorite).Error
+	if err != nil && err != gorm.ErrRecordNotFound {
+		respondDBError(c, err)
+		return
+	}
+	response.Success(c, gin.H{"favorited": err == nil})
+}
+
 func (h *FavoriteHandler) Mine(c *gin.Context) {
 	uid, ok := middleware.CurrentUID(c)
 	if !ok {
@@ -85,25 +118,27 @@ func (h *FavoriteHandler) Mine(c *gin.Context) {
 	}
 
 	page, pageSize, offset := parsePagination(c)
+	query := h.db.Model(&model.Favorite{}).Where("uid = ?", uid)
 
 	var total int64
-	h.db.Model(&model.Favorite{}).Where("uid = ?", uid).Count(&total)
+	if err := query.Count(&total).Error; err != nil {
+		respondDBError(c, err)
+		return
+	}
 
 	var favorites []model.Favorite
-	err := h.db.Where("uid = ?", uid).
-		Preload("Item").Preload("Item.User").
+	if err := query.Preload("Item").Preload("Item.User").
 		Order("created_at DESC").
 		Offset(offset).Limit(pageSize).
-		Find(&favorites).Error
-	if err != nil {
+		Find(&favorites).Error; err != nil {
 		respondDBError(c, err)
 		return
 	}
 
 	list := make([]itemView, 0, len(favorites))
-	for _, f := range favorites {
-		if f.Item != nil {
-			list = append(list, itemToView(*f.Item))
+	for _, favorite := range favorites {
+		if favorite.Item != nil {
+			list = append(list, itemToView(*favorite.Item))
 		}
 	}
 	response.Success(c, pageResult{List: list, Total: total, Page: page, PageSize: pageSize})

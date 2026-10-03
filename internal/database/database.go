@@ -32,6 +32,9 @@ func Open(cfg config.Config) (*gorm.DB, error) {
 		&model.Item{},
 		&model.Claim{},
 		&model.Announcement{},
+		&model.Favorite{},
+		&model.Notification{},
+		&model.Report{},
 	); err != nil {
 		return nil, fmt.Errorf("migrate database: %w", err)
 	}

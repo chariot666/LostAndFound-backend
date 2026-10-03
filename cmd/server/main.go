@@ -34,6 +34,9 @@ func main() {
 	claimHandler := handler.NewClaimHandler(db)
 	adminHandler := handler.NewAdminHandler(db)
 	announcementHandler := handler.NewAnnouncementHandler(db)
+	favoriteHandler := handler.NewFavoriteHandler(db)
+	notificationHandler := handler.NewNotificationHandler(db)
+	reportHandler := handler.NewReportHandler(db)
 	uploadHandler := handler.NewUploadHandler(cfg.UploadDir)
 	authMiddleware := middleware.NewAuthMiddleware(db, cfg.JWTSecret)
 
@@ -55,6 +58,15 @@ func main() {
 	protected.GET("/me/items", itemHandler.MyItems)
 	protected.POST("/items/:id/claims", claimHandler.Create)
 	protected.GET("/me/claims", claimHandler.Mine)
+	protected.POST("/items/:id/favorite", favoriteHandler.Add)
+	protected.DELETE("/items/:id/favorite", favoriteHandler.Remove)
+	protected.GET("/items/:id/favorite", favoriteHandler.Status)
+	protected.GET("/me/favorites", favoriteHandler.Mine)
+	protected.GET("/me/notifications", notificationHandler.List)
+	protected.GET("/me/notifications/unread-count", notificationHandler.UnreadCount)
+	protected.POST("/me/notifications/read-all", notificationHandler.ReadAll)
+	protected.POST("/me/notifications/:id/read", notificationHandler.ReadOne)
+	protected.POST("/items/:id/reports", reportHandler.Create)
 	protected.POST("/upload", uploadHandler.Upload)
 
 	admin := api.Group("/admin")
@@ -67,6 +79,8 @@ func main() {
 	admin.GET("/claims", adminHandler.Claims)
 	admin.PUT("/claims/:id", adminHandler.ReviewClaim)
 	admin.GET("/statistics", adminHandler.Statistics)
+	admin.GET("/reports", reportHandler.AdminList)
+	admin.PUT("/reports/:id", reportHandler.Review)
 
 	systemAdmin := api.Group("/admin")
 	systemAdmin.Use(

@@ -19,7 +19,17 @@ func NewNotificationHandler(db *gorm.DB) *NotificationHandler {
 	return &NotificationHandler{db: db}
 }
 
-// List 我的通知列表: GET /api/v1/me/notifications
+func createNotification(db *gorm.DB, uid uint64, typ, title, content string, itemID uint) error {
+	return db.Create(&model.Notification{
+		UID:     uid,
+		Type:    typ,
+		Title:   title,
+		Content: content,
+		ItemID:  itemID,
+		IsRead:  false,
+	}).Error
+}
+
 func (h *NotificationHandler) List(c *gin.Context) {
 	uid, ok := middleware.CurrentUID(c)
 	if !ok {
@@ -28,50 +38,74 @@ func (h *NotificationHandler) List(c *gin.Context) {
 	}
 
 	page, pageSize, offset := parsePagination(c)
+	query := h.db.Model(&model.Notification{}).Where("uid = ?", uid)
+
 	var total int64
-	h.db.Model(&model.Notification{}).Where("uid = ?", uid).Count(&total)
+	if err := query.Count(&total).Error; err != nil {
+		respondDBError(c, err)
+		return
+	}
 
 	var list []model.Notification
-	h.db.Where("uid = ?", uid).
-		Order("created_at DESC").Offset(offset).Limit(pageSize).
-		Find(&list)
+	if err := query.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&list).Error; err != nil {
+		respondDBError(c, err)
+		return
+	}
 	response.Success(c, pageResult{List: list, Total: total, Page: page, PageSize: pageSize})
 }
 
-// UnreadCount 未读通知数: GET /api/v1/me/notifications/unread-count
 func (h *NotificationHandler) UnreadCount(c *gin.Context) {
 	uid, ok := middleware.CurrentUID(c)
 	if !ok {
 		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "未登录或令牌无效")
 		return
 	}
-	var n int64
-	h.db.Model(&model.Notification{}).Where("uid = ? AND is_read = ?", uid, false).Count(&n)
-	response.Success(c, gin.H{"unread": n})
+	var count int64
+	if err := h.db.Model(&model.Notification{}).
+		Where("uid = ? AND is_read = ?", uid, false).
+		Count(&count).Error; err != nil {
+		respondDBError(c, err)
+		return
+	}
+	response.Success(c, gin.H{"unread": count})
 }
 
-// ReadAll 全部标记已读: POST /api/v1/me/notifications/read-all
 func (h *NotificationHandler) ReadAll(c *gin.Context) {
 	uid, ok := middleware.CurrentUID(c)
 	if !ok {
 		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "未登录或令牌无效")
 		return
 	}
-	h.db.Model(&model.Notification{}).
+	if err := h.db.Model(&model.Notification{}).
 		Where("uid = ? AND is_read = ?", uid, false).
-		Update("is_read", true)
+		Update("is_read", true).Error; err != nil {
+		respondDBError(c, err)
+		return
+	}
 	response.Success(c, gin.H{"unread": 0})
 }
 
-// ReadOne 单条标记已读: POST /api/v1/me/notifications/:id/read
 func (h *NotificationHandler) ReadOne(c *gin.Context) {
 	uid, ok := middleware.CurrentUID(c)
 	if !ok {
 		response.Error(c, http.StatusUnauthorized, response.CodeUnauthorized, "未登录或令牌无效")
 		return
 	}
-	h.db.Model(&model.Notification{}).
-		Where("id = ? AND uid = ?", c.Param("id"), uid).
-		Update("is_read", true)
+	notificationID, err := parseUint(c.Param("id"))
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeParamError, "参数错误")
+		return
+	}
+	var notification model.Notification
+	if err := h.db.Where("id = ? AND uid = ?", notificationID, uid).First(&notification).Error; err != nil {
+		respondDBError(c, err)
+		return
+	}
+	if !notification.IsRead {
+		if err := h.db.Model(&notification).Update("is_read", true).Error; err != nil {
+			respondDBError(c, err)
+			return
+		}
+	}
 	response.Success(c, nil)
 }

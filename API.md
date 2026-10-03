@@ -280,7 +280,39 @@ PUT /api/v1/admin/claims/:id
 }
 ```
 `status` 只能是 `approved` 或 `rejected`。
-## 6. 管理员功能
+
+### 5.5 收藏信息
+```text
+POST /api/v1/items/:id/favorite
+DELETE /api/v1/items/:id/favorite
+GET /api/v1/items/:id/favorite
+GET /api/v1/me/favorites?page=1&page_size=10
+```
+需要登录。重复收藏不会产生重复记录。
+
+## 6. 通知和举报
+### 6.1 我的通知
+```text
+GET /api/v1/me/notifications?page=1&page_size=10
+GET /api/v1/me/notifications/unread-count
+POST /api/v1/me/notifications/read-all
+POST /api/v1/me/notifications/:id/read
+```
+需要登录。物品审核、认领申请提交和认领审核会自动产生站内通知。
+
+### 6.2 举报信息
+普通用户提交举报：
+```text
+POST /api/v1/items/:id/reports
+```
+管理员查看和处理举报：
+```text
+GET /api/v1/admin/reports?page=1&page_size=10&status=pending
+PUT /api/v1/admin/reports/:id
+```
+举报审核的 `status` 只能是 `resolved` 或 `rejected`；举报成立时，对应信息会在同一事务中关闭。
+
+## 7. 管理员功能
 角色约定：
 - `user`: 普通用户。
 - `item_admin`: 失物招领管理员。
@@ -314,7 +346,7 @@ PUT /api/v1/admin/users/:id
 }
 ```
 需要系统管理员权限。
-## 7. 公告和统计
+## 8. 公告和统计
 ### 7.1 获取公告列表
 ```text
 GET /api/v1/announcements?page=1&page_size=10
@@ -349,11 +381,12 @@ GET /api/v1/admin/statistics
     "pending_items": 8,
     "claimed_items": 42,
     "total_users": 80,
-    "total_claims": 50
+    "total_claims": 50,
+    "pending_reports": 3
   }
 }
 ```
-## 8. 错误码
+## 9. 错误码
 | 错误码 | 含义 |
 | --- | --- |
 | `0` | 成功 |
@@ -366,7 +399,7 @@ GET /api/v1/admin/statistics
 | `10007` | uid或密码错误 |
 | `10008` | 重复提交 |
 | `20001` | 服务器内部错误 |
-## 9. 接口实现顺序
+## 10. 接口实现顺序
 建议按以下顺序开发和联调：
 1. `GET /health`
 2. `POST /auth/register`

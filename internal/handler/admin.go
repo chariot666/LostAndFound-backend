@@ -79,14 +79,31 @@ func (h *AdminHandler) ReviewItem(c *gin.Context) {
 			return err
 		}
 		if req.Status == model.ItemStatusClosed {
-			return tx.Model(&model.Claim{}).
+			if err := tx.Model(&model.Claim{}).
 				Where("item_id = ? AND status = ?", item.ID, model.ClaimStatusPending).
 				Updates(map[string]interface{}{
 					"status": model.ClaimStatusRejected,
 					"remark": "物品信息未通过审核",
-				}).Error
+				}).Error; err != nil {
+				return err
+			}
+			return createNotification(
+				tx,
+				item.UID,
+				model.NotifTypeItemRejected,
+				"物品信息未通过审核",
+				"你发布的物品信息未通过审核，请查看审核备注并修改后重新提交。",
+				item.ID,
+			)
 		}
-		return nil
+		return createNotification(
+			tx,
+			item.UID,
+			model.NotifTypeItemApproved,
+			"物品信息审核通过",
+			"你发布的物品信息已通过审核，现在可以在平台公开查看。",
+			item.ID,
+		)
 	}); err != nil {
 		respondDBError(c, err)
 		return
@@ -152,6 +169,11 @@ func (h *AdminHandler) ReviewClaim(c *gin.Context) {
 			if claim.Item.Status != model.ItemStatusApproved {
 				return gorm.ErrInvalidData
 			}
+			var otherClaims []model.Claim
+			if err := tx.Where("item_id = ? AND id <> ? AND status = ?",
+				claim.ItemID, claim.ID, model.ClaimStatusPending).Find(&otherClaims).Error; err != nil {
+				return err
+			}
 			if err := tx.Model(&model.Claim{}).
 				Where("item_id = ? AND id <> ? AND status = ?", claim.ItemID, claim.ID, model.ClaimStatusPending).
 				Updates(map[string]interface{}{
@@ -164,12 +186,44 @@ func (h *AdminHandler) ReviewClaim(c *gin.Context) {
 				Updates(map[string]interface{}{"status": model.ItemStatusClaimed}).Error; err != nil {
 				return err
 			}
+			for _, otherClaim := range otherClaims {
+				if err := createNotification(
+					tx,
+					otherClaim.UID,
+					model.NotifTypeClaimRejected,
+					"认领申请未通过",
+					"该物品已被其他申请人认领，你的认领申请未通过。",
+					claim.ItemID,
+				); err != nil {
+					return err
+				}
+			}
 		}
-		return tx.Model(&model.Claim{}).Where("id = ?", claim.ID).
+		if err := tx.Model(&model.Claim{}).Where("id = ?", claim.ID).
 			Updates(map[string]interface{}{
 				"status": req.Status,
 				"remark": strings.TrimSpace(req.Remark),
-			}).Error
+			}).Error; err != nil {
+			return err
+		}
+		if req.Status == model.ClaimStatusApproved {
+			return createNotification(
+				tx,
+				claim.UID,
+				model.NotifTypeClaimApproved,
+				"认领申请已通过",
+				"你的认领申请已通过审核，请及时联系发布者完成物品交接。",
+				claim.ItemID,
+			)
+		}
+		return createNotification(
+			tx,
+			claim.UID,
+			model.NotifTypeClaimRejected,
+			"认领申请未通过",
+			"你的认领申请未通过审核，请查看管理员备注。",
+			claim.ItemID,
+		)
 	}); err != nil {
 		if err == gorm.ErrInvalidData {
 			response.Error(c, http.StatusConflict, response.CodeInvalidState, "资源状态不允许当前操作")
@@ -268,11 +322,12 @@ func (h *AdminHandler) UpdateUser(c *gin.Context) {
 
 func (h *AdminHandler) Statistics(c *gin.Context) {
 	var stats struct {
-		TotalItems   int64 `json:"total_items"`
-		PendingItems int64 `json:"pending_items"`
-		ClaimedItems int64 `json:"claimed_items"`
-		TotalUsers   int64 `json:"total_users"`
-		TotalClaims  int64 `json:"total_claims"`
+		TotalItems     int64 `json:"total_items"`
+		PendingItems   int64 `json:"pending_items"`
+		ClaimedItems   int64 `json:"claimed_items"`
+		TotalUsers     int64 `json:"total_users"`
+		TotalClaims    int64 `json:"total_claims"`
+		PendingReports int64 `json:"pending_reports"`
 	}
 	if err := h.db.Model(&model.Item{}).Count(&stats.TotalItems).Error; err != nil {
 		respondDBError(c, err)
@@ -291,6 +346,12 @@ func (h *AdminHandler) Statistics(c *gin.Context) {
 		return
 	}
 	if err := h.db.Model(&model.Claim{}).Count(&stats.TotalClaims).Error; err != nil {
+		respondDBError(c, err)
+		return
+	}
+	if err := h.db.Model(&model.Report{}).
+		Where("status = ?", model.ReportStatusPending).
+		Count(&stats.PendingReports).Error; err != nil {
 		respondDBError(c, err)
 		return
 	}

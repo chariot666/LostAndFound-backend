@@ -75,7 +75,19 @@ func (h *ClaimHandler) Create(c *gin.Context) {
 		Contact: strings.TrimSpace(req.Contact),
 		Status:  model.ClaimStatusPending,
 	}
-	if err := h.db.Create(&claim).Error; err != nil {
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&claim).Error; err != nil {
+			return err
+		}
+		return createNotification(
+			tx,
+			item.UID,
+			model.NotifTypeClaimSubmitted,
+			"收到新的认领申请",
+			"有人提交了你发布的拾物信息的认领申请，请前往后台查看。",
+			item.ID,
+		)
+	}); err != nil {
 		respondDBError(c, err)
 		return
 	}

@@ -25,7 +25,6 @@ type reportRequest struct {
 	Detail string `json:"detail"`
 }
 
-// Create 用户举报物品: POST /api/v1/items/:id/reports
 func (h *ReportHandler) Create(c *gin.Context) {
 	uid, ok := middleware.CurrentUID(c)
 	if !ok {
@@ -46,18 +45,29 @@ func (h *ReportHandler) Create(c *gin.Context) {
 	}
 
 	var req reportRequest
-	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Reason) == "" {
+	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, response.CodeParamError, "请填写举报原因")
 		return
 	}
+	req.Reason = strings.TrimSpace(req.Reason)
+	req.Detail = strings.TrimSpace(req.Detail)
+	if req.Reason == "" || len([]rune(req.Reason)) > 100 || len([]rune(req.Detail)) > 1000 {
+		response.Error(c, http.StatusBadRequest, response.CodeParamError, "举报内容不符合规范")
+		return
+	}
+	if item.UID == uid {
+		response.Error(c, http.StatusForbidden, response.CodeForbidden, "不能举报自己发布的信息")
+		return
+	}
 
-	// 检查是否已举报过（待处理中的）
 	var existing model.Report
-	if err := h.db.Where("item_id = ? AND uid = ? AND status = ?",
-		itemID, uid, model.ReportStatusPending).First(&existing).Error; err == nil {
+	switch err := h.db.Where("item_id = ? AND uid = ? AND status = ?",
+		itemID, uid, model.ReportStatusPending).First(&existing).Error; err {
+	case nil:
 		response.Error(c, http.StatusConflict, response.CodeDuplicateRequest, "您已举报过该物品，请等待处理")
 		return
-	} else if err != gorm.ErrRecordNotFound {
+	case gorm.ErrRecordNotFound:
+	default:
 		respondDBError(c, err)
 		return
 	}
@@ -65,8 +75,8 @@ func (h *ReportHandler) Create(c *gin.Context) {
 	report := model.Report{
 		ItemID: uint(itemID),
 		UID:    uid,
-		Reason: strings.TrimSpace(req.Reason),
-		Detail: strings.TrimSpace(req.Detail),
+		Reason: req.Reason,
+		Detail: req.Detail,
 		Status: model.ReportStatusPending,
 	}
 	if err := h.db.Create(&report).Error; err != nil {
@@ -76,36 +86,47 @@ func (h *ReportHandler) Create(c *gin.Context) {
 	response.Success(c, gin.H{"id": report.ID})
 }
 
-// AdminList 管理员看举报列表: GET /api/v1/admin/reports
 func (h *ReportHandler) AdminList(c *gin.Context) {
 	page, pageSize, offset := parsePagination(c)
 	query := h.db.Model(&model.Report{})
 	if status := c.Query("status"); status != "" {
+		if !validReportStatus(status) {
+			response.Error(c, http.StatusBadRequest, response.CodeParamError, "参数错误")
+			return
+		}
 		query = query.Where("status = ?", status)
 	}
 
 	var total int64
-	query.Count(&total)
+	if err := query.Count(&total).Error; err != nil {
+		respondDBError(c, err)
+		return
+	}
 
 	var reports []model.Report
-	err := query.Preload("Item").Preload("Item.User").
-		Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&reports).Error
-	if err != nil {
+	if err := query.Preload("Item").Preload("Item.User").Preload("User").
+		Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&reports).Error; err != nil {
 		respondDBError(c, err)
 		return
 	}
 
 	list := make([]gin.H, 0, len(reports))
-	for _, r := range reports {
+	for _, report := range reports {
 		entry := gin.H{
-			"id": r.ID, "item_id": r.ItemID, "uid": r.UID,
-			"reason": r.Reason, "detail": r.Detail,
-			"status": r.Status, "remark": r.Remark,
-			"created_at": r.CreatedAt,
+			"id":         report.ID,
+			"item_id":    report.ItemID,
+			"uid":        report.UID,
+			"reason":     report.Reason,
+			"detail":     report.Detail,
+			"status":     report.Status,
+			"remark":     report.Remark,
+			"created_at": report.CreatedAt,
 		}
-		if r.Item != nil {
-			item := itemToView(*r.Item)
-			entry["item"] = item
+		if report.User != nil {
+			entry["username"] = report.User.Username
+		}
+		if report.Item != nil {
+			entry["item"] = itemToView(*report.Item)
 		}
 		list = append(list, entry)
 	}
@@ -117,7 +138,6 @@ type reportReviewRequest struct {
 	Remark string `json:"remark"`
 }
 
-// Review 管理员处理举报: PUT /api/v1/admin/reports/:id
 func (h *ReportHandler) Review(c *gin.Context) {
 	var req reportReviewRequest
 	if err := c.ShouldBindJSON(&req); err != nil ||
@@ -136,17 +156,47 @@ func (h *ReportHandler) Review(c *gin.Context) {
 		return
 	}
 
-	report.Status = req.Status
-	report.Remark = strings.TrimSpace(req.Remark)
-	if err := h.db.Save(&report).Error; err != nil {
+	remark := strings.TrimSpace(req.Remark)
+	if len([]rune(remark)) > 500 {
+		response.Error(c, http.StatusBadRequest, response.CodeParamError, "审核备注过长")
+		return
+	}
+
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&model.Report{}).
+			Where("id = ? AND status = ?", report.ID, model.ReportStatusPending).
+			Updates(map[string]interface{}{"status": req.Status, "remark": remark})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return gorm.ErrInvalidData
+		}
+		if req.Status == model.ReportStatusResolved {
+			return tx.Model(&model.Item{}).
+				Where("id = ?", report.ItemID).
+				Update("status", model.ItemStatusClosed).Error
+		}
+		return nil
+	}); err != nil {
+		if err == gorm.ErrInvalidData {
+			response.Error(c, http.StatusConflict, response.CodeInvalidState, "该举报已处理")
+			return
+		}
 		respondDBError(c, err)
 		return
 	}
 
-	// 举报成立则关闭物品
-	if req.Status == model.ReportStatusResolved {
-		h.db.Model(&model.Item{}).Where("id = ?", report.ItemID).
-			Update("status", model.ItemStatusClosed)
-	}
+	report.Status = req.Status
+	report.Remark = remark
 	response.Success(c, report)
+}
+
+func validReportStatus(status string) bool {
+	switch status {
+	case model.ReportStatusPending, model.ReportStatusResolved, model.ReportStatusRejected:
+		return true
+	default:
+		return false
+	}
 }
