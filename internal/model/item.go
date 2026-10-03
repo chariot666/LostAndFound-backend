@@ -17,7 +17,7 @@ const (
 )
 
 type Item struct {
-	ID          uint           `gorm:"primaryKey" json:"id"`
+	ID          uint           `gorm:"primaryKey;index:idx_items_cursor,priority:2" json:"id"`
 	UID         uint64         `gorm:"index;not null" json:"uid"`
 	Type        string         `gorm:"size:10;not null" json:"type"`
 	Title       string         `gorm:"size:100;not null" json:"title"`
@@ -28,7 +28,7 @@ type Item struct {
 	Images      []string       `gorm:"type:json;serializer:json" json:"images"`
 	Status      string         `gorm:"size:20;index;not null" json:"status"`
 	Remark      string         `gorm:"size:500" json:"remark"`
-	CreatedAt   time.Time      `json:"created_at"`
+	CreatedAt   time.Time      `gorm:"index:idx_items_cursor,priority:1" json:"created_at"`
 	UpdatedAt   time.Time      `json:"updated_at"`
 	DeletedAt   gorm.DeletedAt `gorm:"index" json:"-"`
 

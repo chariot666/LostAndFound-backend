@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -41,7 +42,11 @@ type itemUpdateRequest struct {
 }
 
 func (h *ItemHandler) List(c *gin.Context) {
-	page, pageSize, offset := parsePagination(c)
+	cursor, pageSize, err := parseCursorPagination(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeParamError, "分页参数错误")
+		return
+	}
 	query := h.db.Model(&model.Item{}).Where("status IN ?", []string{model.ItemStatusApproved, model.ItemStatusClaimed})
 
 	if itemType := c.Query("type"); itemType != "" {
@@ -58,15 +63,15 @@ func (h *ItemHandler) List(c *gin.Context) {
 	if location := strings.TrimSpace(c.Query("location")); location != "" {
 		query = query.Where("location LIKE ?", "%"+location+"%")
 	}
-
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
 		respondDBError(c, err)
 		return
 	}
+	query = applyCursor(query, cursor)
 
 	var items []model.Item
-	if err := query.Preload("User").Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&items).Error; err != nil {
+	if err := query.Preload("User").Order("created_at DESC, id DESC").Limit(pageSize + 1).Find(&items).Error; err != nil {
 		respondDBError(c, err)
 		return
 	}
@@ -75,7 +80,9 @@ func (h *ItemHandler) List(c *gin.Context) {
 	for _, item := range items {
 		list = append(list, itemToView(item))
 	}
-	response.Success(c, pageResult{List: list, Total: total, Page: page, PageSize: pageSize})
+	response.Success(c, makePageResult(list, total, pageSize, func(item itemView) (time.Time, uint) {
+		return item.CreatedAt, item.ID
+	}))
 }
 
 func (h *ItemHandler) Detail(c *gin.Context) {
@@ -241,7 +248,11 @@ func (h *ItemHandler) MyItems(c *gin.Context) {
 		return
 	}
 
-	page, pageSize, offset := parsePagination(c)
+	cursor, pageSize, err := parseCursorPagination(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeParamError, "分页参数错误")
+		return
+	}
 	query := h.db.Model(&model.Item{}).Where("uid = ?", uid)
 	if status := c.Query("status"); status != "" {
 		if !validItemStatus(status) {
@@ -250,14 +261,14 @@ func (h *ItemHandler) MyItems(c *gin.Context) {
 		}
 		query = query.Where("status = ?", status)
 	}
-
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
 		respondDBError(c, err)
 		return
 	}
+	query = applyCursor(query, cursor)
 	var items []model.Item
-	if err := query.Preload("User").Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&items).Error; err != nil {
+	if err := query.Preload("User").Order("created_at DESC, id DESC").Limit(pageSize + 1).Find(&items).Error; err != nil {
 		respondDBError(c, err)
 		return
 	}
@@ -265,7 +276,9 @@ func (h *ItemHandler) MyItems(c *gin.Context) {
 	for _, item := range items {
 		list = append(list, itemToView(item))
 	}
-	response.Success(c, pageResult{List: list, Total: total, Page: page, PageSize: pageSize})
+	response.Success(c, makePageResult(list, total, pageSize, func(item itemView) (time.Time, uint) {
+		return item.CreatedAt, item.ID
+	}))
 }
 
 func validItemStatus(status string) bool {

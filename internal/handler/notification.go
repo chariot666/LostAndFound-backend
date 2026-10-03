@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -37,7 +38,11 @@ func (h *NotificationHandler) List(c *gin.Context) {
 		return
 	}
 
-	page, pageSize, offset := parsePagination(c)
+	cursor, pageSize, err := parseCursorPagination(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeParamError, "分页参数错误")
+		return
+	}
 	query := h.db.Model(&model.Notification{}).Where("uid = ?", uid)
 
 	var total int64
@@ -45,13 +50,16 @@ func (h *NotificationHandler) List(c *gin.Context) {
 		respondDBError(c, err)
 		return
 	}
+	query = applyCursor(query, cursor)
 
 	var list []model.Notification
-	if err := query.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&list).Error; err != nil {
+	if err := query.Order("created_at DESC, id DESC").Limit(pageSize + 1).Find(&list).Error; err != nil {
 		respondDBError(c, err)
 		return
 	}
-	response.Success(c, pageResult{List: list, Total: total, Page: page, PageSize: pageSize})
+	response.Success(c, makePageResult(list, total, pageSize, func(notification model.Notification) (time.Time, uint) {
+		return notification.CreatedAt, notification.ID
+	}))
 }
 
 func (h *NotificationHandler) UnreadCount(c *gin.Context) {

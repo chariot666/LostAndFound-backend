@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,10 +16,16 @@ import (
 )
 
 type pageResult struct {
-	List     interface{} `json:"list"`
-	Total    int64       `json:"total"`
-	Page     int         `json:"page"`
-	PageSize int         `json:"page_size"`
+	List       interface{} `json:"list"`
+	Total      int64       `json:"total"`
+	PageSize   int         `json:"page_size"`
+	NextCursor string      `json:"next_cursor,omitempty"`
+	HasMore    bool        `json:"has_more"`
+}
+
+type cursorPosition struct {
+	CreatedAt time.Time `json:"created_at"`
+	ID        uint      `json:"id"`
 }
 
 type userBrief struct {
@@ -55,19 +63,86 @@ type claimView struct {
 	Item      *itemView `json:"item"`
 }
 
-func parsePagination(c *gin.Context) (int, int, int) {
-	page := queryInt(c, "page", 1)
+func parseCursorPagination(c *gin.Context) (*cursorPosition, int, error) {
 	pageSize := queryInt(c, "page_size", 10)
-	if page < 1 {
-		page = 1
-	}
 	if pageSize < 1 {
 		pageSize = 10
 	}
 	if pageSize > 100 {
 		pageSize = 100
 	}
-	return page, pageSize, (page - 1) * pageSize
+
+	raw := strings.TrimSpace(c.Query("cursor"))
+	if raw == "" {
+		return nil, pageSize, nil
+	}
+
+	payload, err := base64.RawURLEncoding.DecodeString(raw)
+	if err != nil {
+		return nil, pageSize, err
+	}
+	var cursor cursorPosition
+	if err := json.Unmarshal(payload, &cursor); err != nil || cursor.ID == 0 || cursor.CreatedAt.IsZero() {
+		return nil, pageSize, gorm.ErrInvalidData
+	}
+	return &cursor, pageSize, nil
+}
+
+func applyCursor(query *gorm.DB, cursor *cursorPosition) *gorm.DB {
+	return applyCursorByID(query, cursor, "id")
+}
+
+func applyCursorByID(query *gorm.DB, cursor *cursorPosition, idColumn string) *gorm.DB {
+	if cursor == nil {
+		return query
+	}
+	return query.Where(
+		"(created_at < ?) OR (created_at = ? AND "+idColumn+" < ?)",
+		cursor.CreatedAt,
+		cursor.CreatedAt,
+		cursor.ID,
+	)
+}
+
+func encodeCursor(createdAt time.Time, id uint) string {
+	payload, _ := json.Marshal(cursorPosition{
+		CreatedAt: createdAt,
+		ID:        id,
+	})
+	return base64.RawURLEncoding.EncodeToString(payload)
+}
+
+func makePageResult[T any](
+	list []T,
+	total int64,
+	pageSize int,
+	rowCursor func(T) (time.Time, uint),
+) pageResult {
+	hasMore := len(list) > pageSize
+	var nextCursor string
+	if hasMore {
+		list = list[:pageSize]
+		last := list[len(list)-1]
+		createdAt, id := rowCursor(last)
+		nextCursor = encodeCursor(createdAt, id)
+	}
+	return pageResultWithCursor(list, total, pageSize, hasMore, nextCursor)
+}
+
+func pageResultWithCursor(
+	list interface{},
+	total int64,
+	pageSize int,
+	hasMore bool,
+	nextCursor string,
+) pageResult {
+	return pageResult{
+		List:       list,
+		Total:      total,
+		PageSize:   pageSize,
+		NextCursor: nextCursor,
+		HasMore:    hasMore,
+	}
 }
 
 func queryInt(c *gin.Context, key string, fallback int) int {

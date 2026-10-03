@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -21,7 +22,11 @@ func NewAdminHandler(db *gorm.DB) *AdminHandler {
 }
 
 func (h *AdminHandler) Items(c *gin.Context) {
-	page, pageSize, offset := parsePagination(c)
+	cursor, pageSize, err := parseCursorPagination(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeParamError, "分页参数错误")
+		return
+	}
 	query := h.db.Model(&model.Item{})
 	if status := c.Query("status"); status != "" {
 		if !validItemStatus(status) {
@@ -33,14 +38,14 @@ func (h *AdminHandler) Items(c *gin.Context) {
 	if keyword := strings.TrimSpace(c.Query("keyword")); keyword != "" {
 		query = query.Where("title LIKE ?", "%"+keyword+"%")
 	}
-
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
 		respondDBError(c, err)
 		return
 	}
+	query = applyCursor(query, cursor)
 	var items []model.Item
-	if err := query.Preload("User").Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&items).Error; err != nil {
+	if err := query.Preload("User").Order("created_at DESC, id DESC").Limit(pageSize + 1).Find(&items).Error; err != nil {
 		respondDBError(c, err)
 		return
 	}
@@ -48,7 +53,9 @@ func (h *AdminHandler) Items(c *gin.Context) {
 	for _, item := range items {
 		list = append(list, itemToView(item))
 	}
-	response.Success(c, pageResult{List: list, Total: total, Page: page, PageSize: pageSize})
+	response.Success(c, makePageResult(list, total, pageSize, func(item itemView) (time.Time, uint) {
+		return item.CreatedAt, item.ID
+	}))
 }
 
 type itemReviewRequest struct {
@@ -113,7 +120,11 @@ func (h *AdminHandler) ReviewItem(c *gin.Context) {
 }
 
 func (h *AdminHandler) Claims(c *gin.Context) {
-	page, pageSize, offset := parsePagination(c)
+	cursor, pageSize, err := parseCursorPagination(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeParamError, "分页参数错误")
+		return
+	}
 	query := h.db.Model(&model.Claim{})
 	if status := c.Query("status"); status != "" {
 		if !validClaimStatus(status) {
@@ -122,15 +133,15 @@ func (h *AdminHandler) Claims(c *gin.Context) {
 		}
 		query = query.Where("claims.status = ?", status)
 	}
-
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
 		respondDBError(c, err)
 		return
 	}
+	query = applyCursor(query, cursor)
 	var claims []model.Claim
 	if err := query.Preload("User").Preload("Item").Preload("Item.User").
-		Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&claims).Error; err != nil {
+		Order("created_at DESC, id DESC").Limit(pageSize + 1).Find(&claims).Error; err != nil {
 		respondDBError(c, err)
 		return
 	}
@@ -138,7 +149,9 @@ func (h *AdminHandler) Claims(c *gin.Context) {
 	for _, claim := range claims {
 		list = append(list, claimToView(claim))
 	}
-	response.Success(c, pageResult{List: list, Total: total, Page: page, PageSize: pageSize})
+	response.Success(c, makePageResult(list, total, pageSize, func(claim claimView) (time.Time, uint) {
+		return claim.CreatedAt, claim.ID
+	}))
 }
 
 type claimReviewRequest struct {
@@ -238,7 +251,11 @@ func (h *AdminHandler) ReviewClaim(c *gin.Context) {
 }
 
 func (h *AdminHandler) Users(c *gin.Context) {
-	page, pageSize, offset := parsePagination(c)
+	cursor, pageSize, err := parseCursorPagination(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeParamError, "分页参数错误")
+		return
+	}
 	query := h.db.Model(&model.User{})
 	if keyword := strings.TrimSpace(c.Query("keyword")); keyword != "" {
 		if uid, err := parseUint(keyword); err == nil {
@@ -247,22 +264,31 @@ func (h *AdminHandler) Users(c *gin.Context) {
 			query = query.Where("username LIKE ?", "%"+keyword+"%")
 		}
 	}
-
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
 		respondDBError(c, err)
 		return
 	}
+	query = applyCursorByID(query, cursor, "uid")
 	var users []model.User
-	if err := query.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&users).Error; err != nil {
+	if err := query.Order("created_at DESC, uid DESC").Limit(pageSize + 1).Find(&users).Error; err != nil {
 		respondDBError(c, err)
 		return
+	}
+	hasMore := len(users) > pageSize
+	if hasMore {
+		users = users[:pageSize]
+	}
+	nextCursor := ""
+	if hasMore {
+		last := users[len(users)-1]
+		nextCursor = encodeCursor(last.CreatedAt, uint(last.UID))
 	}
 	list := make([]gin.H, 0, len(users))
 	for _, user := range users {
 		list = append(list, userToView(user))
 	}
-	response.Success(c, pageResult{List: list, Total: total, Page: page, PageSize: pageSize})
+	response.Success(c, pageResultWithCursor(list, total, pageSize, hasMore, nextCursor))
 }
 
 type userUpdateRequest struct {

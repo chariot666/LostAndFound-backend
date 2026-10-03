@@ -87,7 +87,11 @@ func (h *ReportHandler) Create(c *gin.Context) {
 }
 
 func (h *ReportHandler) AdminList(c *gin.Context) {
-	page, pageSize, offset := parsePagination(c)
+	cursor, pageSize, err := parseCursorPagination(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeParamError, "分页参数错误")
+		return
+	}
 	query := h.db.Model(&model.Report{})
 	if status := c.Query("status"); status != "" {
 		if !validReportStatus(status) {
@@ -96,20 +100,29 @@ func (h *ReportHandler) AdminList(c *gin.Context) {
 		}
 		query = query.Where("status = ?", status)
 	}
-
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
 		respondDBError(c, err)
 		return
 	}
+	query = applyCursor(query, cursor)
 
 	var reports []model.Report
 	if err := query.Preload("Item").Preload("Item.User").Preload("User").
-		Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&reports).Error; err != nil {
+		Order("created_at DESC, id DESC").Limit(pageSize + 1).Find(&reports).Error; err != nil {
 		respondDBError(c, err)
 		return
 	}
 
+	hasMore := len(reports) > pageSize
+	if hasMore {
+		reports = reports[:pageSize]
+	}
+	nextCursor := ""
+	if hasMore {
+		last := reports[len(reports)-1]
+		nextCursor = encodeCursor(last.CreatedAt, last.ID)
+	}
 	list := make([]gin.H, 0, len(reports))
 	for _, report := range reports {
 		entry := gin.H{
@@ -130,7 +143,7 @@ func (h *ReportHandler) AdminList(c *gin.Context) {
 		}
 		list = append(list, entry)
 	}
-	response.Success(c, pageResult{List: list, Total: total, Page: page, PageSize: pageSize})
+	response.Success(c, pageResultWithCursor(list, total, pageSize, hasMore, nextCursor))
 }
 
 type reportReviewRequest struct {

@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -28,23 +29,29 @@ func (h *AnnouncementHandler) AdminList(c *gin.Context) {
 }
 
 func (h *AnnouncementHandler) list(c *gin.Context, publishedOnly bool) {
-	page, pageSize, offset := parsePagination(c)
+	cursor, pageSize, err := parseCursorPagination(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeParamError, "分页参数错误")
+		return
+	}
 	query := h.db.Model(&model.Announcement{})
 	if publishedOnly {
 		query = query.Where("published = ?", true)
 	}
-
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
 		respondDBError(c, err)
 		return
 	}
+	query = applyCursor(query, cursor)
 	var announcements []model.Announcement
-	if err := query.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&announcements).Error; err != nil {
+	if err := query.Order("created_at DESC, id DESC").Limit(pageSize + 1).Find(&announcements).Error; err != nil {
 		respondDBError(c, err)
 		return
 	}
-	response.Success(c, pageResult{List: announcements, Total: total, Page: page, PageSize: pageSize})
+	response.Success(c, makePageResult(announcements, total, pageSize, func(announcement model.Announcement) (time.Time, uint) {
+		return announcement.CreatedAt, announcement.ID
+	}))
 }
 
 type announcementRequest struct {

@@ -117,7 +117,11 @@ func (h *FavoriteHandler) Mine(c *gin.Context) {
 		return
 	}
 
-	page, pageSize, offset := parsePagination(c)
+	cursor, pageSize, err := parseCursorPagination(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeParamError, "分页参数错误")
+		return
+	}
 	query := h.db.Model(&model.Favorite{}).Where("uid = ?", uid)
 
 	var total int64
@@ -125,21 +129,31 @@ func (h *FavoriteHandler) Mine(c *gin.Context) {
 		respondDBError(c, err)
 		return
 	}
+	query = applyCursor(query, cursor)
 
 	var favorites []model.Favorite
 	if err := query.Preload("Item").Preload("Item.User").
-		Order("created_at DESC").
-		Offset(offset).Limit(pageSize).
+		Order("created_at DESC, id DESC").
+		Limit(pageSize + 1).
 		Find(&favorites).Error; err != nil {
 		respondDBError(c, err)
 		return
 	}
 
+	hasMore := len(favorites) > pageSize
+	if hasMore {
+		favorites = favorites[:pageSize]
+	}
+	nextCursor := ""
+	if hasMore {
+		last := favorites[len(favorites)-1]
+		nextCursor = encodeCursor(last.CreatedAt, last.ID)
+	}
 	list := make([]itemView, 0, len(favorites))
 	for _, favorite := range favorites {
 		if favorite.Item != nil {
 			list = append(list, itemToView(*favorite.Item))
 		}
 	}
-	response.Success(c, pageResult{List: list, Total: total, Page: page, PageSize: pageSize})
+	response.Success(c, pageResultWithCursor(list, total, pageSize, hasMore, nextCursor))
 }

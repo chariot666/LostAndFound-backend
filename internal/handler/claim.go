@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -105,7 +106,11 @@ func (h *ClaimHandler) Mine(c *gin.Context) {
 		return
 	}
 
-	page, pageSize, offset := parsePagination(c)
+	cursor, pageSize, err := parseCursorPagination(c)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, response.CodeParamError, "分页参数错误")
+		return
+	}
 	query := h.db.Model(&model.Claim{}).Where("claims.uid = ?", uid)
 	if status := c.Query("status"); status != "" {
 		if !validClaimStatus(status) {
@@ -114,15 +119,15 @@ func (h *ClaimHandler) Mine(c *gin.Context) {
 		}
 		query = query.Where("claims.status = ?", status)
 	}
-
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
 		respondDBError(c, err)
 		return
 	}
+	query = applyCursor(query, cursor)
 	var claims []model.Claim
 	if err := query.Preload("User").Preload("Item").Preload("Item.User").
-		Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&claims).Error; err != nil {
+		Order("created_at DESC, id DESC").Limit(pageSize + 1).Find(&claims).Error; err != nil {
 		respondDBError(c, err)
 		return
 	}
@@ -130,7 +135,9 @@ func (h *ClaimHandler) Mine(c *gin.Context) {
 	for _, claim := range claims {
 		list = append(list, claimToView(claim))
 	}
-	response.Success(c, pageResult{List: list, Total: total, Page: page, PageSize: pageSize})
+	response.Success(c, makePageResult(list, total, pageSize, func(claim claimView) (time.Time, uint) {
+		return claim.CreatedAt, claim.ID
+	}))
 }
 
 func validClaimStatus(status string) bool {
